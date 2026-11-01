@@ -1,0 +1,167 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Unit tests
+        run: cargo test
+        env:
+          CARGO_TERM_COLOR: always
+
+  build:
+    needs: test
+
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-musl,aarch64-unknown-linux-musl
+
+      - name: Install cargo-zigbuild
+        run: cargo install --locked cargo-zigbuild
+
+      - name: Install Zig
+        uses: mlugg/setup-zig@v2
+        with:
+          version: 0.13.0
+
+      - name: Clean Zig cache
+        run: rm -rf .zig-cache
+
+      - name: Run GoReleaser
+        uses: goreleaser/goreleaser-action@v7
+        with:
+          distribution: goreleaser
+          version: "~> v2"
+          args: release --clean --skip=publish
+        env:
+          CARGO_HOME: /home/runner/.cargo
+          CARGO_INCREMENTAL: 0
+          CARGO_TERM_COLOR: always
+          ZIG_GLOBAL_CACHE_DIR: ${{ runner.temp }}/zig-global-cache
+          ZIG_LOCAL_CACHE_DIR: ${{ runner.temp }}/zig-local-cache
+
+      - name: Upload unsigned packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: unsigned-linux-packages
+          path: |
+            dist/*.rpm
+            dist/*.deb
+          if-no-files-found: error
+
+  sign-release:
+    needs: build
+
+    runs-on:
+      - self-hosted
+
+    permissions:
+      contents: write
+      id-token: write
+
+    steps:
+      - name: Download unsigned packages
+        uses: actions/download-artifact@v4
+        with:
+          name: unsigned-linux-packages
+          path: packages
+
+      - name: List packages
+        run: |
+          find packages -maxdepth 2 -type f -print
+
+      - name: Sign RPM packages
+        uses: JohannesPosch/sign-rpms-action@v1
+        with:
+          packages-path: packages
+          bao-url: ${{ vars.SIGNING_URL }}
+          bao-role: ${{ vars.SIGNING_ROLE }}
+          bao-auth-path: ${{ vars.SIGNING_AUTH_PATH }}
+          oidc-audience: ${{ vars.SIGNING_OIDC_AUDIENCE }}
+          secret-path: ${{ vars.SIGNING_SECRET_PATH }}
+
+      - name: Upload signed packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: signed-linux-packages
+          path: |
+            packages/*.deb
+            packages/*.rpm
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: ${{ github.ref_name }}
+          generate_release_notes: true
+          files: |
+            packages/*
+
+      - name: Cleanup
+        if: always()
+        run: |
+          rm -rf packages
+
+  publish-packages:
+    name: Publish packages
+
+    runs-on:
+      - self-hosted
+
+    container:
+      image: ubuntu:26.04
+
+    needs:
+      - build
+      - sign-release
+
+    steps:
+      - name: Download signed packages
+        uses: actions/download-artifact@v5
+        with:
+          name: signed-linux-packages
+          path: packages
+
+      - name: Install dependencies
+        run: |
+          apt-get update
+          apt-get install -y curl ca-certificates
+
+      - name: Publish Packages
+        uses: JohannesPosch/publish-packages-action@v1
+        with:
+          packages-path: packages
+          nexus-url: ${{ vars.PACKAGES_URL }}
+          nexus-username: ${{ secrets.PACKAGES_USERNAME }}
+          nexus-password: ${{ secrets.PACKAGES_PASSWORD }}
+          apt-repository: ${{ vars.APT_REPOSITORY }}
+          yum-repository: ${{ vars.YUM_REPOSITORY }}
+
+      - name: Cleanup
+        if: always()
+        run: |
+          rm -rf packages
