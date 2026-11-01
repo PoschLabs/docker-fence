@@ -4,7 +4,9 @@ This page is for maintainers of a fork or a new repository. Users do not need it
 
 ## How a release is triggered
 
-Push a tag that starts with `v`:
+Bump `version` in `Cargo.toml` first, commit it, then push a tag that starts with `v` and equals `v<version>`. The `test` job fails the release if the tag version and `Cargo.toml` differ, so the binary and the packages never carry a stale version.
+
+For example, for version 1.2.3:
 
 ```sh
 git tag v1.2.3
@@ -13,9 +15,9 @@ git push origin v1.2.3
 
 The release workflow (`.github/workflows/release.yaml`) then runs these jobs in order:
 
-1. `test`: `cargo test`.
+1. `test`: checks that the tag version matches the `version` in `Cargo.toml`, then runs `cargo test`.
 2. `build`: GoReleaser builds the x86_64 and aarch64 musl binaries and the `.deb` and `.rpm` packages (unsigned) and uploads them as a workflow artifact.
-3. `sign-release`: signs the packages using a signing service, creates the GitHub release and attaches the packages. Runs on a self-hosted runner.
+3. `sign-release`: signs the RPM packages (not the `.deb` files) using a signing service, creates the GitHub release and attaches the packages. Runs on a self-hosted runner.
 4. `publish-packages`: uploads the signed packages to the apt and yum repositories. Runs on a self-hosted runner in a container.
 
 ## Repository variables
@@ -32,6 +34,8 @@ Set these under Settings, Secrets and variables, Actions, Variables. Values belo
 | `PACKAGES_URL` | publish-packages | base URL of the package repository manager | `https://packages.example.org` |
 | `APT_REPOSITORY` | publish-packages | name of the apt repository to upload `.deb` files to | `apt-docker-fence` |
 | `YUM_REPOSITORY` | publish-packages | name of the yum repository to upload `.rpm` files to | `yum-docker-fence` |
+
+The meanings of the signing variables depend on the maintainer's signing setup. Confirm them against the documentation of the signing action used in the workflow before relying on the descriptions above.
 
 ## Secrets
 

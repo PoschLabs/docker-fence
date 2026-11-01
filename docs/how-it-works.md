@@ -47,11 +47,17 @@ IPv4 is applied first, then IPv6. The two families are separate transactions.
 - **stop**: runs `docker-fence remove`, which deletes the jump and the chain in each family. Nothing is left behind.
 - **Docker restart**: the unit has `Requires=`, `After=` and `PartOf=docker.service`, so stopping or restarting Docker stops or restarts docker-fence too, and the rules are installed again after Docker is back. If Docker is not running, the unit cannot start.
 
+Limits of the lifecycle (see the [threat model](threat-model.md)):
+
+- With `live-restore: true`, stopping Docker stops docker-fence, so the fence is off while containers keep running until both start again.
+- At boot and on Docker restarts, containers with restart policies may start before docker-fence applies; `After=docker.service` does not wait for containers.
+- `apply` does not cut connections that were already established; use `conntrack -D -d <cidr>` manually if needed.
+
 ## Failure handling
 
 - **Invalid config on start:** `apply` exits with status 2 before touching any rule; the unit fails and no rules are installed.
 - **Invalid config on reload:** the reload fails and the previously installed rules keep running. Fix the file and reload again.
-- **IPv6:** if Docker has no IPv6 `DOCKER-USER` chain (IPv6 not enabled in Docker), the IPv6 part is skipped with a notice. If the config contains IPv6 networks the notice is stronger: `WARNING: ip6tables chain DOCKER-USER not found; IPv6 subnets in the config are NOT blocked`.
+- **IPv6:** if Docker has no IPv6 `DOCKER-USER` chain (IPv6 not enabled in Docker), or `ip6tables` cannot be used at all (for example `ipv6.disable=1`; the notice includes the error), the IPv6 part is skipped with a notice. If the config contains IPv6 networks the notice is stronger: `WARNING: ip6tables chain DOCKER-USER not found; IPv6 subnets in the config are NOT blocked`.
 - **No IPv4 `DOCKER-USER`:** `iptables chain DOCKER-USER not found; is Docker running? (nothing was changed)`, exit status 1.
 - **Partial apply:** if IPv4 was installed but IPv6 failed, the error reads `partially applied: iptables rules were installed but ip6tables failed: ...` (exit status 1). The IPv4 rules stay in place; fix the cause and reload.
 

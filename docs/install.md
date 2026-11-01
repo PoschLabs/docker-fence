@@ -46,7 +46,7 @@ Download the `.deb` or `.rpm` from the project's release page, then:
 ```sh
 sudo apt install ./docker-fence_<version>_amd64.deb
 # or
-sudo dnf install ./docker-fence-<version>.x86_64.rpm
+sudo dnf install ./docker-fence-<version>-1.x86_64.rpm
 ```
 
 ## The service is installed disabled

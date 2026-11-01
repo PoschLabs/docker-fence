@@ -9,7 +9,7 @@ This is an independent project, not affiliated with Docker, Inc.
 ## Quick start
 
 ```sh
-sudo apt install ./docker-fence_<version>_amd64.deb      # or: sudo dnf install ./docker-fence-<version>.x86_64.rpm
+sudo apt install ./docker-fence_<version>_amd64.deb      # or: sudo dnf install ./docker-fence-<version>-1.x86_64.rpm
 sudoedit /etc/docker-fence/docker-fence.conf             # one CIDR per line, e.g. 192.0.2.0/24
 sudo systemctl enable --now docker-fence
 sudo docker-fence status

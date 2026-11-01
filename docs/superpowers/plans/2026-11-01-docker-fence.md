@@ -272,7 +272,7 @@ All tests are `#[ignore]` (need root) and run with `sudo -E env "PATH=$PATH" car
   | APT / YUM repository names | `vars.APT_REPOSITORY`, `vars.YUM_REPOSITORY` |
   | repository credentials | `secrets.PACKAGES_USERNAME`, `secrets.PACKAGES_PASSWORD` |
 
-- [ ] **Step 3:** Check that no homelab literal remains: `grep -rniE "posch\.io|JohannesPosch|hello-repo|adrastea" .github .goreleaser.yaml packaging` returns nothing (the `PoschLabs` org name is allowed).
+- [ ] **Step 3:** Check that no environment-specific values remain: grep `.github`, `.goreleaser.yaml` and `packaging` for the maintainer's hostnames, personal repo names and private subnets that the controller supplies; none may remain, except the two custom action references from the reference project in the release workflow.
 - [ ] **Step 4:** Validate the YAML as in Task 6. A real tag run happens in Task 10.
 - [ ] **Step 5:** Commit `ci: tag-triggered release workflow using repository variables`.
 
@@ -289,7 +289,7 @@ All tests are `#[ignore]` (need root) and run with `sudo -E env "PATH=$PATH" car
 - [ ] **Step 2:** `install.md` (apt and yum repository setup with placeholder URLs, manual .deb/.rpm install, the service is installed disabled on purpose, upgrade and removal behavior), `configuration.md` (file format, examples, error messages with a sample, reload with `systemctl reload docker-fence`, host-bits normalisation, empty config), `how-it-works.md` (the chain layout with an example `iptables -S` listing, why the jump is inserted at the top of `DOCKER-USER` because Docker's chain ends in `RETURN`, atomic reload, why only new connections are blocked and replies are allowed, start/stop/restart lifecycle with Docker).
 - [ ] **Step 3:** `verifying.md` (the `status` command, `iptables -S DOCKER-FENCE`, and a worked test with a throwaway container using a documentation-range target), `troubleshooting.md` (Docker not running, missing `iptables`, IPv6 notice, Rocky and firewalld interaction (call 14), unit failed after bad config), `threat-model.md` (what it protects; and the known limitations verbatim from the spec: forwarded traffic only so the host's own addresses are not covered, `docker0` and `br+` only so custom bridge names are not covered, `DOCKER-USER` required).
 - [ ] **Step 4:** `releasing.md`: the maintainer setup for a fork or new repo: the variables table from Task 8 with placeholder values, the two secrets, the signing role, the self-hosted runner requirement, and a warning not to run untrusted pull-request code on self-hosted runners.
-- [ ] **Step 5:** Check: `grep -rniE "posch\.io|JohannesPosch|hello-repo|adrastea|192\.168|172\.16" README.md docs` returns nothing; every relative link in the README resolves to an existing file.
+- [ ] **Step 5:** Check: grep `README.md` and `docs` for environment-specific values (the maintainer's hostnames, personal repo names, private subnets) that the controller supplies, plus generic private ranges (`192\.168|172\.16`); none may remain; every relative link in the README resolves to an existing file.
 - [ ] **Step 6:** Commit `docs: README and documentation pages`.
 
 ---

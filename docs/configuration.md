@@ -43,6 +43,8 @@ An unreadable or missing file is reported as `<path>: cannot read config: ...`. 
 sudo systemctl reload docker-fence
 ```
 
+Always use `reload` after editing the config, not `restart` or stop and start. Reload keeps the old rules when the new config is invalid, whereas stop removes the rules first and the following start then fails on a typo, leaving nothing blocked.
+
 Reload re-reads the file and replaces the rules in a single transaction per address family. If the file is invalid the reload fails and the previous rules stay in place. See [how it works](how-it-works.md#failure-handling).
 
 To check a file without changing any rules, point `status` at it: `docker-fence --config /path/to/file status` (it reports config errors with exit status 2 and compares the installed rules with that file).
