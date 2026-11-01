@@ -16,6 +16,15 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Check tag matches Cargo.toml version
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          crate="$(cargo pkgid | sed 's/.*[#@]//')"
+          if [ "$tag" != "$crate" ]; then
+            echo "::error::Tag version ($tag) differs from Cargo.toml version ($crate). Bump version in Cargo.toml before tagging."
+            exit 1
+          fi
+
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
@@ -111,6 +120,7 @@ jobs:
           path: |
             packages/*.deb
             packages/*.rpm
+          if-no-files-found: error
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v3
