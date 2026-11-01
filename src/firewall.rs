@@ -16,13 +16,27 @@ impl fmt::Display for FirewallError {
 impl std::error::Error for FirewallError {}
 
 pub trait Firewall {
-    /// `Ok(None)` means the chain does not exist.
+    /// `Ok(None)` means the chain does not exist. Any `Err` is a listing
+    /// failure; callers treat it as a hard error for IPv4 but as "IPv6
+    /// unavailable" (e.g. `ipv6.disable=1`) for IPv6.
     fn list_chain(&self, family: Family, chain: &str)
     -> Result<Option<Vec<String>>, FirewallError>;
     fn restore(&self, family: Family, script: &str) -> Result<(), FirewallError>;
 }
 
 pub struct SystemFirewall;
+
+/// Bounded xtables lock wait (seconds). A bare `-w` could block a oneshot
+/// unit forever; nft-backed tools accept and ignore the flag.
+const LOCK_WAIT: &str = "10";
+
+fn list_args(chain: &str) -> [&str; 4] {
+    ["-w", LOCK_WAIT, "-S", chain]
+}
+
+fn restore_args() -> [&'static str; 3] {
+    ["-w", LOCK_WAIT, "--noflush"]
+}
 
 fn spawn_error(tool: &str, e: std::io::Error) -> FirewallError {
     if e.kind() == ErrorKind::NotFound {
@@ -71,7 +85,7 @@ impl Firewall for SystemFirewall {
         chain: &str,
     ) -> Result<Option<Vec<String>>, FirewallError> {
         let tool = family.tool();
-        let (code, stdout, stderr) = run(tool, &["-S", chain], None)?;
+        let (code, stdout, stderr) = run(tool, &list_args(chain), None)?;
         if code == Some(0) {
             return Ok(Some(stdout.lines().map(str::to_string).collect()));
         }
@@ -86,7 +100,7 @@ impl Firewall for SystemFirewall {
 
     fn restore(&self, family: Family, script: &str) -> Result<(), FirewallError> {
         let tool = family.restore_tool();
-        let (code, _, stderr) = run(tool, &["--noflush"], Some(script))?;
+        let (code, _, stderr) = run(tool, &restore_args(), Some(script))?;
         if code == Some(0) {
             Ok(())
         } else {
@@ -98,6 +112,12 @@ impl Firewall for SystemFirewall {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn invocations_use_bounded_lock_wait() {
+        assert_eq!(list_args("DOCKER-USER"), ["-w", "10", "-S", "DOCKER-USER"]);
+        assert_eq!(restore_args(), ["-w", "10", "--noflush"]);
+    }
 
     #[test]
     fn missing_binary_error_names_the_package() {
