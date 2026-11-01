@@ -1,5 +1,5 @@
 [Unit]
-Description=Restrict Docker-published ports to allowed source networks
+Description=Block Docker containers from opening new connections to listed networks
 Documentation=https://github.com/PoschLabs/docker-fence
 Requires=docker.service
 After=docker.service

@@ -25,7 +25,7 @@ nfpms:
     vendor: PoschLabs
     homepage: https://github.com/PoschLabs/docker-fence
     maintainer: PoschLabs
-    description: Keeps Docker published ports off the public interface with iptables rules.
+    description: Block Docker containers from opening new connections to listed networks
     license: MIT
 
     formats:
