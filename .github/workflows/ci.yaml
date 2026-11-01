@@ -1,0 +1,63 @@
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  lint-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: Format
+        run: cargo fmt --check
+      - name: Clippy
+        run: cargo clippy --all-targets -- -D warnings
+      - name: Unit tests
+        run: cargo test
+
+  integration:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Install system packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y iptables iproute2 curl python3
+      - name: Record iptables backend
+        run: iptables --version
+      - name: Integration tests (network namespaces)
+        run: sudo -E env "PATH=$PATH" cargo test --test netns -- --ignored --test-threads=1
+
+  rocky9:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    container:
+      image: rockylinux:9
+      options: --privileged
+    steps:
+      - name: Install system packages
+        run: dnf install -y --allowerasing iptables iproute curl python3 gcc git tar
+      - uses: actions/checkout@v4
+      - name: Install Rust toolchain
+        run: |
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain stable
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+      - name: Record iptables backend
+        run: iptables --version
+      - name: Integration tests (network namespaces)
+        # The container runs as root and has no sudo.
+        run: env "PATH=$PATH" cargo test --test netns -- --ignored --test-threads=1
