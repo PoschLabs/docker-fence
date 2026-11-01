@@ -303,3 +303,50 @@ All tests are `#[ignore]` (need root) and run with `sudo -E env "PATH=$PATH" car
 - [ ] **Step 3:** Repeat Step 2 on Rocky Linux 9 (best effort; record any firewalld interaction in `docs/troubleshooting.md`).
 - [ ] **Step 4:** Maintainer checklist (hand to the maintainer, do not perform): create the repo variables and secrets from `docs/releasing.md`, create the signing role, confirm the two custom action references in `release.yaml` are fine to be public, confirm the self-hosted runner only serves tag-triggered jobs, then push a `v0.1.0` tag and confirm signed packages appear in the APT and YUM repositories.
 - [ ] **Step 5:** Check the name `docker-fence` is not already taken on GitHub and in common package indexes (promised earlier to the maintainer); report the result.
+
+---
+
+## Follow-up tasks (added after the final review, approved by the maintainer)
+
+### Task 11: IPv6 must fail closed
+
+**Files:**
+- Modify: `src/firewall.rs`, `src/ops.rs`, `docs/how-it-works.md`, `docs/troubleshooting.md`
+
+**Interfaces:**
+- Consumes: `Firewall::list_chain`, `FenceError::PartiallyApplied { applied, failed, cause }`, `FenceError::Firewall`.
+- Produces: `Firewall::ipv6_available(&self) -> bool` (a new trait method). `SystemFirewall` returns `std::path::Path::new("/proc/sys/net/ipv6").exists()`. The in-test fake gets a settable flag.
+
+**Behavior (replaces the "any V6 listing error means unavailable" rule):**
+- A V6 `DOCKER-USER` listing that returns `Ok(None)` (chain merely absent) keeps the current behavior: skip, plain notice, or the WARNING notice when the config has IPv6 CIDRs; exit 0.
+- A V6 `DOCKER-USER` listing that returns `Err(e)`:
+  - config has no IPv6 CIDRs: skip with a plain notice that includes `e`; exit 0.
+  - config has IPv6 CIDRs and `!fw.ipv6_available()`: skip with the WARNING notice (IPv6 is off in the kernel, so no container can use it); exit 0.
+  - config has IPv6 CIDRs and `fw.ipv6_available()`: `apply` installs IPv4 first, then returns `FenceError::PartiallyApplied { applied: V4, failed: V6, cause: <the error> }` (exit 1). Nothing is skipped silently.
+- `remove`: V4 removal always runs first. A V6 `DOCKER-USER` listing `Err`: if `fw.ipv6_available()` the function returns a `FenceError::Firewall` naming `ip6tables` after the V4 removal (exit 1); otherwise it skips with a notice. An error while listing the `DOCKER-FENCE` chain itself is propagated with `?` in `remove` and `status` (no longer treated as "chain absent").
+- `status`: unchanged semantics (V6 `Skipped` when the config has no IPv6 CIDRs, `Missing` when it has some), except a `DOCKER-FENCE` listing error is propagated.
+
+- [ ] **Step 1: Write failing tests** in `src/ops.rs` with the fake: `apply_v6_error_with_v6_config_and_ipv6_present_is_partially_applied` (V4 restore happened, no V6 restore, error is `PartiallyApplied { applied: V4, failed: V6, .. }`); `apply_v6_error_with_v6_config_and_ipv6_absent_warns_and_succeeds`; `apply_v6_error_without_v6_config_skips_with_notice`; `remove_v6_error_with_ipv6_present_removes_v4_then_errors`; `remove_v6_error_with_ipv6_absent_skips_with_notice`; `remove_and_status_propagate_fence_chain_listing_error`. Update the existing `apply_treats_v6_listing_error_as_unavailable` test to match the new rules.
+- [ ] **Step 2:** `cargo test ops` — expect FAIL (RED output in the report).
+- [ ] **Step 3:** Add `ipv6_available` to the trait, `SystemFirewall`, and the fake; change `apply`, `remove`, `status` per Behavior.
+- [ ] **Step 4:** `cargo test` — all pass; `cargo clippy --all-targets -- -D warnings`; `cargo fmt --check`.
+- [ ] **Step 5:** Update `docs/how-it-works.md` (failure handling) and `docs/troubleshooting.md` to describe the three IPv6 cases exactly, including the new non-zero exit and the message text; keep documentation-range examples only.
+- [ ] **Step 6:** Commit `fix: fail closed when ip6tables errors on an IPv6-enabled host`.
+
+### Task 12: Use clap for the command line
+
+**Files:**
+- Modify: `Cargo.toml` (via `cargo add`), `src/main.rs`, `README.md`, `docs/*.md` where usage text is quoted
+
+**Interfaces:**
+- Consumes: `config::DEFAULT_CONFIG_PATH`, `ops::{apply, remove, status}`.
+- Produces: `#[derive(clap::Parser)] struct Cli { #[arg(long, global = true, value_name = "PATH", default_value = DEFAULT_CONFIG_PATH)] config: PathBuf, #[command(subcommand)] command: Command }` and `#[derive(clap::Subcommand)] enum Command { Apply, Remove, Status }` with one-line help for each. `#[command(name = "docker-fence", version, about = "Block Docker containers from opening new connections to listed networks")]`. The manual `parse_args`, `early_output`, `USAGE`, and the old `Cli`/`Command` types are deleted.
+
+**Rules:** exit codes stay 0 ok, 1 runtime/firewall failure, 2 usage error or invalid/unreadable config (clap exits 2 on usage errors and 0 on `--help`/`--version`); runtime log lines keep the `docker-fence: ` prefix; `--version` prints `docker-fence <CARGO_PKG_VERSION>`; `remove` still ignores the config file; `--config` works before or after the subcommand. Add the dependency with cargo tools and minimal features: `cargo add clap --no-default-features --features std,help,usage,error-context,derive`.
+
+- [ ] **Step 1: Write failing tests** with `Cli::try_parse_from`: `default_config_path`; `config_before_subcommand`; `config_after_subcommand`; `unknown_subcommand_is_error`; `missing_subcommand_is_error`; `config_without_value_is_error`; `config_does_not_swallow_help_flag` (`["docker-fence","--config","--help","apply"]` is an error, not help); `two_subcommands_is_error`; `version_flag` (`ErrorKind::DisplayVersion`); `help_flag` (`ErrorKind::DisplayHelp`).
+- [ ] **Step 2:** `cargo test` — expect FAIL/compile errors.
+- [ ] **Step 3:** `cargo add` the dependency, replace the parsing in `main.rs` with the derive types, keep `run` and the exit-code mapping; usage errors must exit 2.
+- [ ] **Step 4:** `cargo test`, `cargo clippy --all-targets -- -D warnings`, `cargo fmt --check` all pass; run the binary and show: `docker-fence --version` (exit 0), `docker-fence --help` (exit 0), `docker-fence bogus` (exit 2), `docker-fence` (exit 2), `docker-fence --config` (exit 2).
+- [ ] **Step 5:** Replace the quoted usage text in README and docs with the real `--help` output; confirm nothing else in docs mentions the old parser behavior.
+- [ ] **Step 6:** Commit `refactor: use clap for the command line`.
