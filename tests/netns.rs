@@ -80,6 +80,25 @@ fn reply_on_connection_started_from_protected_net_is_allowed() {
     assert!(h.probe_from_protected(CT_V6));
     assert!(!h.probe_from_container(PN_V4));
     assert!(!h.probe_from_container(PN_V6));
+
+    // Negative control: without the ESTABLISHED,RELATED rule (the first
+    // rule of DOCKER-FENCE) the container's SYN-ACK is rejected, so the
+    // probes above really did traverse the fence.
+    for tool in ["iptables", "ip6tables"] {
+        let fence = h.list(tool, "DOCKER-FENCE");
+        assert!(
+            fence.len() > 1 && fence[1].contains("conntrack"),
+            "{tool}: {fence:?}"
+        );
+        h.ipt(tool, &["-D", "DOCKER-FENCE", "1"]);
+    }
+    assert!(!h.probe_from_protected(CT_V4));
+    assert!(!h.probe_from_protected(CT_V6));
+
+    // Re-applying restores the exception.
+    h.apply_ok();
+    assert!(h.probe_from_protected(CT_V4));
+    assert!(h.probe_from_protected(CT_V6));
 }
 
 #[test]

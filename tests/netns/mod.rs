@@ -232,18 +232,39 @@ impl Harness {
             ip -n {h} -6 addr add 2001:db8:20::1/64 dev prot0 nodad
             ip -n {c} addr add 172.30.0.2/24 dev eth0
             ip -n {c} -6 addr add fd30::2/64 dev eth0 nodad
-            ip -n {c} route add default via 172.30.0.1 dev eth0
-            ip -n {c} -6 route add default via fd30::1 dev eth0
+            ip -n {c} route add default via 172.30.0.1 dev eth0 src 172.30.0.2
+            ip -n {c} -6 route add default via fd30::1 dev eth0 src fd30::2
             ip -n {p} addr add 192.0.2.2/24 dev eth0
             ip -n {p} -6 addr add 2001:db8:10::2/64 dev eth0 nodad
             ip -n {p} addr add 198.51.100.2/24 dev eth0
             ip -n {p} -6 addr add 2001:db8:20::2/64 dev eth0 nodad
-            ip -n {p} route add 172.30.0.0/24 via 192.0.2.1 dev eth0
-            ip -n {p} -6 route add fd30::/64 via 2001:db8:10::1 dev eth0
+            ip -n {p} route add 172.30.0.0/24 via 192.0.2.1 dev eth0 src 192.0.2.2
+            ip -n {p} -6 route add fd30::/64 via 2001:db8:10::1 dev eth0 src 2001:db8:10::2
             "
         );
         for line in script.lines().map(str::trim).filter(|l| !l.is_empty()) {
             run_ok(&line.split_whitespace().collect::<Vec<_>>());
+        }
+        // `pn` has two global addresses per family on eth0, and IPv6 source
+        // selection ignores the gateway. Without the pinned `src`, traffic
+        // from `pn` to the container could leave from 2001:db8:20::2, so the
+        // container's replies would fall outside the fenced CIDR and the
+        // reply test would pass vacuously. Check the kernel's choice.
+        for (ns, family, dst, src) in [
+            (p, "-4", "172.30.0.2", "192.0.2.2"),
+            (p, "-6", "fd30::2", "2001:db8:10::2"),
+            (c, "-4", "192.0.2.2", "172.30.0.2"),
+            (c, "-6", "2001:db8:10::2", "fd30::2"),
+        ] {
+            let argv = ["ip", "-n", ns, family, "route", "get", dst];
+            let out = run_ok(&argv);
+            let text = stdout(&out);
+            let toks: Vec<&str> = text.split_whitespace().collect();
+            assert!(
+                toks.windows(2).any(|w| w == ["src", src]),
+                "expected source {src} towards {dst}\n{}",
+                describe(&argv, &out)
+            );
         }
         for key in [
             "net.ipv4.ip_forward=1",
