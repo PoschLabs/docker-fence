@@ -1,0 +1,61 @@
+version: 2
+
+project_name: docker-fence
+
+builds:
+  - id: docker-fence
+    builder: rust
+    binary: docker-fence
+    flags:
+      - --release
+    targets:
+      - x86_64-unknown-linux-musl
+      - aarch64-unknown-linux-musl
+
+archives:
+  - formats:
+      - tar.gz
+
+nfpms:
+  - id: linux-packages
+    package_name: docker-fence
+    ids:
+      - docker-fence
+
+    vendor: PoschLabs
+    homepage: https://github.com/PoschLabs/docker-fence
+    maintainer: PoschLabs
+    description: Keeps Docker published ports off the public interface with iptables rules.
+    license: MIT
+
+    formats:
+      - deb
+      - rpm
+
+    dependencies:
+      - iptables
+
+    bindir: /usr/bin
+
+    contents:
+      - src: packaging/docker-fence.service
+        dst: /usr/lib/systemd/system/docker-fence.service
+      - src: packaging/docker-fence.conf
+        dst: /etc/docker-fence/docker-fence.conf
+        type: config|noreplace
+      - src: LICENSE
+        dst: /usr/share/doc/docker-fence/LICENSE
+        type: license
+
+    scripts:
+      postinstall: packaging/postinstall.sh
+      preremove: packaging/preremove.sh
+      postremove: packaging/postremove.sh
+
+checksum:
+  name_template: checksums.txt
+
+release:
+  github:
+    owner: PoschLabs
+    name: docker-fence
