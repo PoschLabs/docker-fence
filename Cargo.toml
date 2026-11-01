@@ -1,0 +1,10 @@
+[package]
+name = "docker-fence"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+license = "MIT"
+description = "Restrict Docker-published ports to allowed source networks"
+
+[dependencies]
+ipnet = "2"
