@@ -75,7 +75,11 @@ mod tests {
 
     #[test]
     fn parses_mixed_families_comments_crlf_and_tabs() {
-        let c = parse("# mgmt\r\n192.0.2.0/24\t # inline\r\n\r\n2001:db8:10::/64  \n", p()).unwrap();
+        let c = parse(
+            "# mgmt\r\n192.0.2.0/24\t # inline\r\n\r\n2001:db8:10::/64  \n",
+            p(),
+        )
+        .unwrap();
         assert_eq!(c.v4, vec!["192.0.2.0/24".parse().unwrap()]);
         assert_eq!(c.v6, vec!["2001:db8:10::/64".parse().unwrap()]);
     }
@@ -83,7 +87,10 @@ mod tests {
     #[test]
     fn normalises_host_bits() {
         let c = parse("192.0.2.5/24", p()).unwrap();
-        assert_eq!(c.v4, vec!["192.0.2.0/24".parse::<ipnet::Ipv4Net>().unwrap()]);
+        assert_eq!(
+            c.v4,
+            vec!["192.0.2.0/24".parse::<ipnet::Ipv4Net>().unwrap()]
+        );
     }
 
     #[test]
@@ -102,7 +109,11 @@ mod tests {
 
     #[test]
     fn dedupes_exact_duplicates_keeping_order() {
-        let c = parse("192.0.2.0/25\n198.51.100.0/24\n192.0.2.0/25\n192.0.2.5/25\n", p()).unwrap();
+        let c = parse(
+            "192.0.2.0/25\n198.51.100.0/24\n192.0.2.0/25\n192.0.2.5/25\n",
+            p(),
+        )
+        .unwrap();
         assert_eq!(
             c.v4,
             vec![

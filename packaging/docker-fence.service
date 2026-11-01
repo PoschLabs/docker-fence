@@ -1,0 +1,16 @@
+[Unit]
+Description=Restrict Docker-published ports to allowed source networks
+Documentation=https://github.com/PoschLabs/docker-fence
+Requires=docker.service
+After=docker.service
+PartOf=docker.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/bin/docker-fence apply
+ExecReload=/usr/bin/docker-fence apply
+ExecStop=/usr/bin/docker-fence remove
+
+[Install]
+WantedBy=multi-user.target

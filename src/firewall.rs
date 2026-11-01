@@ -17,7 +17,8 @@ impl std::error::Error for FirewallError {}
 
 pub trait Firewall {
     /// `Ok(None)` means the chain does not exist.
-    fn list_chain(&self, family: Family, chain: &str) -> Result<Option<Vec<String>>, FirewallError>;
+    fn list_chain(&self, family: Family, chain: &str)
+    -> Result<Option<Vec<String>>, FirewallError>;
     fn restore(&self, family: Family, script: &str) -> Result<(), FirewallError>;
 }
 
@@ -32,10 +33,18 @@ fn spawn_error(tool: &str, e: std::io::Error) -> FirewallError {
 }
 
 /// Run `tool args`, optionally feeding `stdin`. Returns (exit code, stdout, stderr).
-fn run(tool: &str, args: &[&str], stdin: Option<&str>) -> Result<(Option<i32>, String, String), FirewallError> {
+fn run(
+    tool: &str,
+    args: &[&str],
+    stdin: Option<&str>,
+) -> Result<(Option<i32>, String, String), FirewallError> {
     let mut child = Command::new(tool)
         .args(args)
-        .stdin(if stdin.is_some() { Stdio::piped() } else { Stdio::null() })
+        .stdin(if stdin.is_some() {
+            Stdio::piped()
+        } else {
+            Stdio::null()
+        })
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
@@ -56,7 +65,11 @@ fn run(tool: &str, args: &[&str], stdin: Option<&str>) -> Result<(Option<i32>, S
 }
 
 impl Firewall for SystemFirewall {
-    fn list_chain(&self, family: Family, chain: &str) -> Result<Option<Vec<String>>, FirewallError> {
+    fn list_chain(
+        &self,
+        family: Family,
+        chain: &str,
+    ) -> Result<Option<Vec<String>>, FirewallError> {
         let tool = family.tool();
         let (code, stdout, stderr) = run(tool, &["-S", chain], None)?;
         if code == Some(0) {
@@ -65,7 +78,10 @@ impl Firewall for SystemFirewall {
         if code == Some(1) && stderr.contains("No chain/target/match by that name") {
             return Ok(None);
         }
-        Err(FirewallError(format!("{tool} -S {chain} failed: {}", stderr.trim())))
+        Err(FirewallError(format!(
+            "{tool} -S {chain} failed: {}",
+            stderr.trim()
+        )))
     }
 
     fn restore(&self, family: Family, script: &str) -> Result<(), FirewallError> {

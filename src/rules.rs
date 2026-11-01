@@ -119,23 +119,43 @@ mod tests {
 
     #[test]
     fn apply_script_inserts_jump_when_absent() {
-        let out = render_apply(&s(&["192.0.2.0/24"]), &JumpState { count: 0, at_top: false });
+        let out = render_apply(
+            &s(&["192.0.2.0/24"]),
+            &JumpState {
+                count: 0,
+                at_top: false,
+            },
+        );
         assert_eq!(
             out,
-            format!("*filter\n:DOCKER-FENCE - [0:0]\n{R0}\n{R1}\n{R2}\n-I DOCKER-USER 1 -j DOCKER-FENCE\nCOMMIT\n")
+            format!(
+                "*filter\n:DOCKER-FENCE - [0:0]\n{R0}\n{R1}\n{R2}\n-I DOCKER-USER 1 -j DOCKER-FENCE\nCOMMIT\n"
+            )
         );
     }
 
     #[test]
     fn apply_script_has_no_jump_lines_when_already_on_top() {
-        let out = render_apply(&s(&["192.0.2.0/24"]), &JumpState { count: 1, at_top: true });
+        let out = render_apply(
+            &s(&["192.0.2.0/24"]),
+            &JumpState {
+                count: 1,
+                at_top: true,
+            },
+        );
         assert!(!out.contains("-j DOCKER-FENCE"));
         assert!(out.ends_with("COMMIT\n"));
     }
 
     #[test]
     fn apply_script_removes_then_reinserts_when_displaced_or_duplicated() {
-        let out = render_apply(&[], &JumpState { count: 2, at_top: false });
+        let out = render_apply(
+            &[],
+            &JumpState {
+                count: 2,
+                at_top: false,
+            },
+        );
         let d = "-D DOCKER-USER -j DOCKER-FENCE\n";
         assert!(out.contains(&format!("{d}{d}-I DOCKER-USER 1 -j DOCKER-FENCE\nCOMMIT\n")));
         assert_eq!(out.matches("-D DOCKER-USER").count(), 2);
@@ -144,9 +164,18 @@ mod tests {
     #[test]
     fn apply_script_never_declares_docker_user() {
         for j in [
-            JumpState { count: 0, at_top: false },
-            JumpState { count: 1, at_top: true },
-            JumpState { count: 3, at_top: false },
+            JumpState {
+                count: 0,
+                at_top: false,
+            },
+            JumpState {
+                count: 1,
+                at_top: true,
+            },
+            JumpState {
+                count: 3,
+                at_top: false,
+            },
         ] {
             let out = render_apply(&s(&["192.0.2.0/24"]), &j);
             assert!(!out.lines().any(|l| l.starts_with(":DOCKER-USER")));
@@ -159,17 +188,46 @@ mod tests {
             render_remove(1),
             "*filter\n-D DOCKER-USER -j DOCKER-FENCE\n-F DOCKER-FENCE\n-X DOCKER-FENCE\nCOMMIT\n"
         );
-        assert_eq!(render_remove(0), "*filter\n-F DOCKER-FENCE\n-X DOCKER-FENCE\nCOMMIT\n");
+        assert_eq!(
+            render_remove(0),
+            "*filter\n-F DOCKER-FENCE\n-X DOCKER-FENCE\nCOMMIT\n"
+        );
     }
 
     #[test]
     fn jump_state_parsing() {
-        let top = s(&["-N DOCKER-USER", "-A DOCKER-USER -j DOCKER-FENCE", "-A DOCKER-USER -j RETURN"]);
-        assert_eq!(parse_jump_state(&top), JumpState { count: 1, at_top: true });
-        let low = s(&["-N DOCKER-USER", "-A DOCKER-USER -j RETURN", "-A DOCKER-USER -j DOCKER-FENCE"]);
-        assert_eq!(parse_jump_state(&low), JumpState { count: 1, at_top: false });
+        let top = s(&[
+            "-N DOCKER-USER",
+            "-A DOCKER-USER -j DOCKER-FENCE",
+            "-A DOCKER-USER -j RETURN",
+        ]);
+        assert_eq!(
+            parse_jump_state(&top),
+            JumpState {
+                count: 1,
+                at_top: true
+            }
+        );
+        let low = s(&[
+            "-N DOCKER-USER",
+            "-A DOCKER-USER -j RETURN",
+            "-A DOCKER-USER -j DOCKER-FENCE",
+        ]);
+        assert_eq!(
+            parse_jump_state(&low),
+            JumpState {
+                count: 1,
+                at_top: false
+            }
+        );
         let none = s(&["-N DOCKER-USER", "-A DOCKER-USER -j RETURN"]);
-        assert_eq!(parse_jump_state(&none), JumpState { count: 0, at_top: false });
+        assert_eq!(
+            parse_jump_state(&none),
+            JumpState {
+                count: 0,
+                at_top: false
+            }
+        );
     }
 
     #[test]
@@ -180,6 +238,9 @@ mod tests {
             "-A DOCKER-FENCE -d 192.0.2.0/24 -i docker0 -j REJECT --reject-with icmp-port-unreachable",
         ]);
         let got = parse_fenced_destinations(&l);
-        assert_eq!(got.into_iter().collect::<Vec<_>>(), vec!["192.0.2.0/24".to_string()]);
+        assert_eq!(
+            got.into_iter().collect::<Vec<_>>(),
+            vec!["192.0.2.0/24".to_string()]
+        );
     }
 }

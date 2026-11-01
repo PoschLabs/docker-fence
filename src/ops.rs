@@ -13,7 +13,11 @@ pub enum FenceError {
     Config(ConfigError),
     DockerUserMissing(Family),
     Firewall(FirewallError),
-    PartiallyApplied { applied: Family, failed: Family, cause: FirewallError },
+    PartiallyApplied {
+        applied: Family,
+        failed: Family,
+        cause: FirewallError,
+    },
 }
 
 impl fmt::Display for FenceError {
@@ -26,7 +30,11 @@ impl fmt::Display for FenceError {
                 fam.tool()
             ),
             FenceError::Firewall(e) => write!(f, "{e}"),
-            FenceError::PartiallyApplied { applied, failed, cause } => write!(
+            FenceError::PartiallyApplied {
+                applied,
+                failed,
+                cause,
+            } => write!(
                 f,
                 "partially applied: {} rules were installed but {} failed: {cause}",
                 applied.tool(),
@@ -86,7 +94,9 @@ pub fn apply(fw: &dyn Firewall, cfg: &FenceConfig) -> Result<Report, FenceError>
         )),
     }
     if cfg.v4.is_empty() && cfg.v6.is_empty() {
-        report.notices.push("no subnets configured; nothing is blocked".to_string());
+        report
+            .notices
+            .push("no subnets configured; nothing is blocked".to_string());
     }
 
     let mut applied: Option<Family> = None;
@@ -95,7 +105,11 @@ pub fn apply(fw: &dyn Firewall, cfg: &FenceConfig) -> Result<Report, FenceError>
             Ok(()) => applied = Some(*family),
             Err(cause) => {
                 return Err(match applied {
-                    Some(applied) => FenceError::PartiallyApplied { applied, failed: *family, cause },
+                    Some(applied) => FenceError::PartiallyApplied {
+                        applied,
+                        failed: *family,
+                        cause,
+                    },
                     None => FenceError::Firewall(cause),
                 });
             }
@@ -209,14 +223,24 @@ mod tests {
 
     impl FakeFirewall {
         fn with(mut self, f: Family, chain: &str, lines: &[&str]) -> Self {
-            self.lists
-                .insert((f, chain.to_string()), lines.iter().map(|s| s.to_string()).collect());
+            self.lists.insert(
+                (f, chain.to_string()),
+                lines.iter().map(|s| s.to_string()).collect(),
+            );
             self
         }
         fn docker() -> Self {
             Self::default()
-                .with(Family::V4, "DOCKER-USER", &["-N DOCKER-USER", "-A DOCKER-USER -j RETURN"])
-                .with(Family::V6, "DOCKER-USER", &["-N DOCKER-USER", "-A DOCKER-USER -j RETURN"])
+                .with(
+                    Family::V4,
+                    "DOCKER-USER",
+                    &["-N DOCKER-USER", "-A DOCKER-USER -j RETURN"],
+                )
+                .with(
+                    Family::V6,
+                    "DOCKER-USER",
+                    &["-N DOCKER-USER", "-A DOCKER-USER -j RETURN"],
+                )
         }
         fn calls(&self) -> Vec<(Family, String)> {
             self.restores.borrow().clone()
@@ -268,8 +292,16 @@ mod tests {
     #[test]
     fn apply_is_idempotent_when_jump_on_top() {
         let fw = FakeFirewall::docker()
-            .with(Family::V4, "DOCKER-USER", &[JUMP, "-A DOCKER-USER -j RETURN"])
-            .with(Family::V6, "DOCKER-USER", &[JUMP, "-A DOCKER-USER -j RETURN"]);
+            .with(
+                Family::V4,
+                "DOCKER-USER",
+                &[JUMP, "-A DOCKER-USER -j RETURN"],
+            )
+            .with(
+                Family::V6,
+                "DOCKER-USER",
+                &[JUMP, "-A DOCKER-USER -j RETURN"],
+            );
         apply(&fw, &both()).unwrap();
         for (_, s) in fw.calls() {
             assert!(!s.contains("-I ") && !s.contains("-D "), "{s}");
@@ -298,7 +330,11 @@ mod tests {
         let fw = FakeFirewall::default().with(Family::V4, "DOCKER-USER", &["-N DOCKER-USER"]);
         let r = apply(&fw, &both()).unwrap();
         assert_eq!(fw.calls().len(), 1);
-        assert!(r.notices.iter().any(|n| n.contains("WARNING") && n.contains("NOT blocked")));
+        assert!(
+            r.notices
+                .iter()
+                .any(|n| n.contains("WARNING") && n.contains("NOT blocked"))
+        );
     }
 
     #[test]
@@ -307,7 +343,11 @@ mod tests {
         fw.fail_v6_restore = true;
         let err = apply(&fw, &both()).unwrap_err();
         match err {
-            FenceError::PartiallyApplied { applied, failed, cause } => {
+            FenceError::PartiallyApplied {
+                applied,
+                failed,
+                cause,
+            } => {
                 assert_eq!(applied, Family::V4);
                 assert_eq!(failed, Family::V6);
                 assert_eq!(cause.0, "boom");
@@ -321,7 +361,11 @@ mod tests {
     fn apply_empty_config_warns_and_installs_only_established_rule() {
         let fw = FakeFirewall::docker();
         let r = apply(&fw, &FenceConfig::default()).unwrap();
-        assert!(r.notices.iter().any(|n| n == "no subnets configured; nothing is blocked"));
+        assert!(
+            r.notices
+                .iter()
+                .any(|n| n == "no subnets configured; nothing is blocked")
+        );
         for (_, s) in fw.calls() {
             assert!(s.contains("ESTABLISHED,RELATED"));
             assert!(!s.contains("REJECT"));
@@ -331,7 +375,11 @@ mod tests {
     #[test]
     fn remove_deletes_jump_and_chain_only() {
         let fw = FakeFirewall::default()
-            .with(Family::V4, "DOCKER-USER", &[JUMP, "-A DOCKER-USER -j RETURN"])
+            .with(
+                Family::V4,
+                "DOCKER-USER",
+                &[JUMP, "-A DOCKER-USER -j RETURN"],
+            )
             .with(Family::V4, "DOCKER-FENCE", &["-N DOCKER-FENCE"]);
         remove(&fw).unwrap();
         let calls = fw.calls();
@@ -353,13 +401,20 @@ mod tests {
     }
 
     fn installed(jump_first: bool, v4: &[&str]) -> FakeFirewall {
-        let user: Vec<&str> =
-            if jump_first { vec![JUMP, "-A DOCKER-USER -j RETURN"] } else { vec!["-A DOCKER-USER -j RETURN", JUMP] };
+        let user: Vec<&str> = if jump_first {
+            vec![JUMP, "-A DOCKER-USER -j RETURN"]
+        } else {
+            vec!["-A DOCKER-USER -j RETURN", JUMP]
+        };
         let mut fw = FakeFirewall::default()
             .with(Family::V4, "DOCKER-USER", &user)
             .with(Family::V6, "DOCKER-USER", &user);
-        fw.lists.insert((Family::V4, "DOCKER-FENCE".into()), chain_lines(v4));
-        fw.lists.insert((Family::V6, "DOCKER-FENCE".into()), chain_lines(&["2001:db8:10::/64"]));
+        fw.lists
+            .insert((Family::V4, "DOCKER-FENCE".into()), chain_lines(v4));
+        fw.lists.insert(
+            (Family::V6, "DOCKER-FENCE".into()),
+            chain_lines(&["2001:db8:10::/64"]),
+        );
         fw
     }
 
