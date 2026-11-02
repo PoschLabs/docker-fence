@@ -107,11 +107,11 @@ jobs:
         uses: JohannesPosch/sign-rpms-action@v1
         with:
           packages-path: packages
-          bao-url: ${{ vars.SIGNING_URL }}
-          bao-role: ${{ vars.SIGNING_ROLE }}
-          bao-auth-path: ${{ vars.SIGNING_AUTH_PATH }}
-          oidc-audience: ${{ vars.SIGNING_OIDC_AUDIENCE }}
-          secret-path: ${{ vars.SIGNING_SECRET_PATH }}
+          bao-url: ${{ vars.KEYSTORE_URL }}
+          bao-role: ${{ vars.KEYSTORE_ROLE }}
+          bao-auth-path: ${{ vars.KEYSTORE_AUTH_PATH }}
+          oidc-audience: ${{ vars.KEYSTORE_OIDC_AUDIENCE }}
+          secret-path: ${{ vars.KEYSTORE_SECRET_PATH }}
 
       - name: Upload signed packages
         uses: actions/upload-artifact@v4

@@ -29,7 +29,7 @@ use std::time::{Duration, Instant};
 
 pub const BIN: &str = env!("CARGO_BIN_EXE_docker-fence");
 
-/// Protected destinations (inside the CIDRs of [`PROTECTED_CONFIG`]).
+/// Protected destinations (inside the blocked CIDRs of [`PROTECTED_CONFIG`]).
 pub const PN_V4: &str = "192.0.2.2:9000";
 pub const PN_V6: &str = "[2001:db8:10::2]:9000";
 /// Destinations in `pn` outside the protected CIDRs.
@@ -39,8 +39,12 @@ pub const OTHER_V6: &str = "[2001:db8:20::2]:9000";
 pub const CT_V4: &str = "172.30.0.2:9001";
 pub const CT_V6: &str = "[fd30::2]:9001";
 
-pub const PROTECTED_CONFIG: &str = "192.0.2.0/24\n2001:db8:10::/64\n";
-pub const WIDE_CONFIG: &str = "192.0.2.0/24\n2001:db8:10::/64\n198.51.100.0/24\n2001:db8:20::/64\n";
+pub const PROTECTED_CONFIG: &str = "block 192.0.2.0/24\nblock 2001:db8:10::/64\n";
+pub const WIDE_CONFIG: &str = "block 192.0.2.0/24\nblock 2001:db8:10::/64\n\
+                               block 198.51.100.0/24\nblock 2001:db8:20::/64\n";
+/// [`PROTECTED_CONFIG`] with an exception for the one host `pn` listens on.
+pub const ALLOW_HOST_CONFIG: &str = "block 192.0.2.0/24\nallow 192.0.2.2/32\n\
+                                     block 2001:db8:10::/64\nallow 2001:db8:10::2/128\n";
 
 /// The `DOCKER-USER` listing of the Docker emulation, for either family.
 pub const DOCKER_USER_BASELINE: [&str; 2] = ["-N DOCKER-USER", "-A DOCKER-USER -j RETURN"];

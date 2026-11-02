@@ -399,3 +399,131 @@ fn v6_notice_when_ipv6_docker_user_missing() {
     // Nothing was installed for IPv6 and FORWARD no longer reaches a fence.
     assert!(h.probe_from_container(PN_V6));
 }
+
+#[test]
+#[ignore = "needs root, iptables, iproute2, curl, python3"]
+fn allow_entry_is_an_exception_inside_a_blocked_network() {
+    let h = Harness::new();
+    h.write_config(ALLOW_HOST_CONFIG);
+    h.apply_ok();
+    // The allowed host is reachable again, for both families ...
+    assert!(h.probe_from_container(PN_V4));
+    assert!(h.probe_from_container(PN_V6));
+    // ... while the rest of the same network, and the other blocks, stay as
+    // configured: block the other protected /24 and /64 to prove it.
+    h.write_config(&format!(
+        "{ALLOW_HOST_CONFIG}block 198.51.100.0/24\nblock 2001:db8:20::/64\n"
+    ));
+    h.apply_ok();
+    assert!(h.probe_from_container(PN_V4));
+    assert!(h.probe_from_container(PN_V6));
+    assert!(!h.probe_from_container(OTHER_V4));
+    assert!(!h.probe_from_container(OTHER_V6));
+
+    let st = h.docker_fence(&["status"]);
+    assert_exit(&st, 0, "status with allow entries");
+    assert_eq!(stdout(&st), "ipv4: ok\nipv6: ok\n");
+}
+
+#[test]
+#[ignore = "needs root, iptables, iproute2, curl, python3"]
+fn most_specific_entry_wins_for_nested_networks() {
+    let h = Harness::new();
+    // 192.0.2.2 sits in all of these; only the longest prefix decides.
+    let steps = [
+        ("block 192.0.2.0/24\n", false),
+        ("block 192.0.2.0/24\nallow 192.0.2.0/25\n", true),
+        (
+            "block 192.0.2.0/24\nallow 192.0.2.0/25\nblock 192.0.2.0/30\n",
+            false,
+        ),
+        (
+            "block 192.0.2.0/24\nallow 192.0.2.0/25\nblock 192.0.2.0/30\nallow 192.0.2.2/32\n",
+            true,
+        ),
+    ];
+    for (config, reachable) in steps {
+        h.write_config(config);
+        h.apply_ok();
+        assert_eq!(h.probe_from_container(PN_V4), reachable, "{config}");
+        let st = h.docker_fence(&["status"]);
+        assert_exit(&st, 0, "status");
+    }
+    // Order in the file does not matter, only prefix length does.
+    h.write_config(
+        "allow 192.0.2.2/32\nblock 192.0.2.0/30\nallow 192.0.2.0/25\nblock 192.0.2.0/24\n",
+    );
+    h.apply_ok();
+    assert!(h.probe_from_container(PN_V4));
+}
+
+#[test]
+#[ignore = "needs root, iptables, iproute2, curl, python3"]
+fn bare_cidr_and_conflicting_entries_are_config_errors() {
+    let h = Harness::new();
+    for config in ["192.0.2.0/24\n", "block 192.0.2.0/24\nallow 192.0.2.0/24\n"] {
+        h.write_config(config);
+        let out = h.docker_fence(&["apply"]);
+        assert_exit(&out, 2, config);
+        assert!(!h.chain_exists("iptables", "DOCKER-FENCE"));
+    }
+}
+
+#[test]
+#[ignore = "needs root, iptables, iproute2, curl, python3"]
+fn status_flags_a_missing_allow_entry() {
+    let h = Harness::new();
+    h.write_config(PROTECTED_CONFIG);
+    h.apply_ok();
+    h.write_config(ALLOW_HOST_CONFIG);
+    let st = h.docker_fence(&["status"]);
+    assert_exit(&st, 1, "status after adding an allow to the config");
+    assert!(
+        stdout(&st).contains("missing: [allow 192.0.2.2/32]"),
+        "{}",
+        stdout(&st)
+    );
+}
+
+#[test]
+#[ignore = "needs root, iptables, iproute2, curl, python3"]
+fn commands_are_echoed_and_dry_run_changes_nothing() {
+    let h = Harness::new();
+    h.write_config(PROTECTED_CONFIG);
+    let before4 = h.list("iptables", "");
+    let before6 = h.list("ip6tables", "");
+
+    let out = h.docker_fence(&["apply", "--dry"]);
+    assert_exit(&out, 0, "apply --dry");
+    let err = stderr(&out);
+    assert!(err.contains("[#] iptables -w 10 -S DOCKER-USER"), "{err}");
+    assert!(
+        err.contains("[#] iptables-restore -w 10 --noflush <<'EOF'\n*filter\n:DOCKER-FENCE"),
+        "{err}"
+    );
+    assert!(
+        err.contains("[#] ip6tables-restore -w 10 --noflush"),
+        "{err}"
+    );
+    assert!(err.contains("dry run: no changes were made"), "{err}");
+    assert_eq!(h.list("iptables", ""), before4);
+    assert_eq!(h.list("ip6tables", ""), before6);
+    assert!(h.probe_from_container(PN_V4));
+
+    // A real run echoes the same commands and does change things.
+    let out = h.docker_fence(&["apply"]);
+    assert_exit(&out, 0, "apply");
+    assert!(
+        stderr(&out).contains("[#] iptables-restore"),
+        "{}",
+        stderr(&out)
+    );
+    assert!(!stderr(&out).contains("dry run"), "{}", stderr(&out));
+    assert!(!h.probe_from_container(PN_V4));
+
+    // A dry remove leaves the fence in place.
+    let out = h.docker_fence(&["--dry", "remove"]);
+    assert_exit(&out, 0, "remove --dry");
+    assert!(h.chain_exists("iptables", "DOCKER-FENCE"));
+    assert!(!h.probe_from_container(PN_V4));
+}
