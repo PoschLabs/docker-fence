@@ -70,18 +70,20 @@ fn cidrs(cfg: &FenceConfig, family: Family) -> Vec<String> {
     }
 }
 
-/// List a chain for `family`. For IPv6 a listing error means IPv6 is
-/// unavailable (e.g. kernel booted with `ipv6.disable=1`): it is returned as
-/// `Ok((None, Some(reason)))` so IPv4 keeps working. For IPv4 it stays an error.
-fn list_family(
-    fw: &dyn Firewall,
-    family: Family,
-    chain: &str,
-) -> Result<(Option<Vec<String>>, Option<String>), FenceError> {
-    match fw.list_chain(family, chain) {
-        Ok(l) => Ok((l, None)),
-        Err(e) if family == Family::V6 => Ok((None, Some(e.0))),
-        Err(e) => Err(e.into()),
+/// How a failed IPv6 `DOCKER-USER` listing is handled.
+enum V6Listing {
+    Listed(Option<Vec<String>>),
+    /// Tolerated: no IPv6 subnets are configured or the kernel has no IPv6.
+    Unavailable(String),
+    /// IPv6 is present and the listing failed: must not be skipped silently.
+    Failed(FirewallError),
+}
+
+fn list_v6_user(fw: &dyn Firewall, needs_v6: bool) -> V6Listing {
+    match fw.list_chain(Family::V6, USER_CHAIN) {
+        Ok(l) => V6Listing::Listed(l),
+        Err(e) if needs_v6 && fw.ipv6_available() => V6Listing::Failed(e),
+        Err(e) => V6Listing::Unavailable(e.0),
     }
 }
 
@@ -90,7 +92,15 @@ pub fn apply(fw: &dyn Firewall, cfg: &FenceConfig) -> Result<Report, FenceError>
     let v4_user = fw
         .list_chain(Family::V4, USER_CHAIN)?
         .ok_or(FenceError::DockerUserMissing(Family::V4))?;
-    let (v6_user, v6_err) = list_family(fw, Family::V6, USER_CHAIN)?;
+    let mut v6_failure = None;
+    let (v6_user, v6_err) = match list_v6_user(fw, !cfg.v6.is_empty()) {
+        V6Listing::Listed(l) => (l, None),
+        V6Listing::Unavailable(e) => (None, Some(e)),
+        V6Listing::Failed(e) => {
+            v6_failure = Some(e);
+            (None, None)
+        }
+    };
     let why = v6_err.map_or_else(
         || format!("chain {USER_CHAIN} not found"),
         |e| format!("unavailable ({e})"),
@@ -105,6 +115,7 @@ pub fn apply(fw: &dyn Firewall, cfg: &FenceConfig) -> Result<Report, FenceError>
             Family::V6,
             render_apply(&cidrs(cfg, Family::V6), &parse_jump_state(&listing)),
         )),
+        None if v6_failure.is_some() => {}
         None if cfg.v6.is_empty() => report
             .notices
             .push(format!("ip6tables {why}; skipping IPv6")),
@@ -134,21 +145,36 @@ pub fn apply(fw: &dyn Firewall, cfg: &FenceConfig) -> Result<Report, FenceError>
             }
         }
     }
+    if let Some(cause) = v6_failure {
+        return Err(FenceError::PartiallyApplied {
+            applied: Family::V4,
+            failed: Family::V6,
+            cause,
+        });
+    }
     Ok(report)
 }
 
 pub fn remove(fw: &dyn Firewall) -> Result<Report, FenceError> {
     let mut report = Report::default();
     for family in [Family::V4, Family::V6] {
-        let (user, err) = list_family(fw, family, USER_CHAIN)?;
-        if let Some(e) = err {
-            report.notices.push(format!(
-                "{}: unavailable ({e}); skipping IPv6",
-                family.tool()
-            ));
-            continue;
-        }
-        let (chain, _) = list_family(fw, family, CHAIN)?;
+        let user = match fw.list_chain(family, USER_CHAIN) {
+            Ok(l) => l,
+            Err(e) if family == Family::V6 && fw.ipv6_available() => {
+                return Err(FenceError::Firewall(FirewallError(format!(
+                    "ip6tables: failed to list {USER_CHAIN}: {e}; IPv6 rules were not removed"
+                ))));
+            }
+            Err(e) if family == Family::V6 => {
+                report.notices.push(format!(
+                    "{}: unavailable ({e}); skipping IPv6",
+                    family.tool()
+                ));
+                continue;
+            }
+            Err(e) => return Err(e.into()),
+        };
+        let chain = fw.list_chain(family, CHAIN)?;
         let jumps = user.as_deref().map_or(0, |l| parse_jump_state(l).count);
         if chain.is_none() {
             if jumps > 0 {
@@ -190,13 +216,17 @@ pub fn status(fw: &dyn Firewall, cfg: &FenceConfig) -> Result<StatusReport, Fenc
     let mut families = Vec::new();
     for family in [Family::V4, Family::V6] {
         let want: BTreeSet<String> = cidrs(cfg, family).into_iter().collect();
-        let (user, _) = list_family(fw, family, USER_CHAIN)?;
+        let user = match fw.list_chain(family, USER_CHAIN) {
+            Ok(l) => l,
+            Err(_) if family == Family::V6 => None,
+            Err(e) => return Err(e.into()),
+        };
         let st = match user {
             None if family == Family::V6 && want.is_empty() => FamilyStatus::Skipped,
             None => FamilyStatus::Missing,
             Some(user) => {
                 let jump = parse_jump_state(&user);
-                match list_family(fw, family, CHAIN)?.0 {
+                match fw.list_chain(family, CHAIN)? {
                     None => FamilyStatus::Missing,
                     Some(chain) => {
                         let have = parse_fenced_destinations(&chain);
@@ -246,6 +276,8 @@ mod tests {
         restores: RefCell<Vec<(Family, String)>>,
         fail_v6_restore: bool,
         fail_v6_list: bool,
+        fail_fence_list: bool,
+        ipv6_absent: bool,
     }
 
     impl FakeFirewall {
@@ -279,7 +311,13 @@ mod tests {
             if f == Family::V6 && self.fail_v6_list {
                 return Err(FirewallError("Address family not supported".into()));
             }
+            if self.fail_fence_list && chain == "DOCKER-FENCE" {
+                return Err(FirewallError("lock timeout".into()));
+            }
             Ok(self.lists.get(&(f, chain.to_string())).cloned())
+        }
+        fn ipv6_available(&self) -> bool {
+            !self.ipv6_absent
         }
         fn restore(&self, f: Family, script: &str) -> Result<(), FirewallError> {
             if f == Family::V6 && self.fail_v6_restore {
@@ -485,7 +523,39 @@ mod tests {
     }
 
     #[test]
-    fn apply_treats_v6_listing_error_as_unavailable() {
+    fn apply_v6_error_with_v6_config_and_ipv6_present_is_partially_applied() {
+        let fw = v6_broken();
+        let err = apply(&fw, &both()).unwrap_err();
+        match err {
+            FenceError::PartiallyApplied {
+                applied,
+                failed,
+                cause,
+            } => {
+                assert_eq!(applied, Family::V4);
+                assert_eq!(failed, Family::V6);
+                assert!(cause.0.contains("Address family not supported"));
+            }
+            other => panic!("unexpected {other:?}"),
+        }
+        let calls = fw.calls();
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].0, Family::V4);
+    }
+
+    #[test]
+    fn apply_v6_error_with_v6_config_and_ipv6_absent_warns_and_succeeds() {
+        let mut fw = v6_broken();
+        fw.ipv6_absent = true;
+        let r = apply(&fw, &both()).unwrap();
+        assert_eq!(fw.calls().len(), 1);
+        assert!(r.notices.iter().any(|n| n.contains("WARNING")
+            && n.contains("NOT blocked")
+            && n.contains("Address family not supported")));
+    }
+
+    #[test]
+    fn apply_v6_error_without_v6_config_skips_with_notice() {
         let fw = v6_broken();
         let r = apply(&fw, &cfg("192.0.2.0/24\n")).unwrap();
         assert_eq!(fw.calls().len(), 1);
@@ -494,10 +564,6 @@ mod tests {
                 .iter()
                 .any(|n| n.contains("Address family not supported") && !n.contains("WARNING"))
         );
-        let r = apply(&fw, &both()).unwrap();
-        assert!(r.notices.iter().any(|n| n.contains("WARNING")
-            && n.contains("NOT blocked")
-            && n.contains("Address family not supported")));
     }
 
     #[test]
@@ -510,6 +576,9 @@ mod tests {
             fn restore(&self, _: Family, _: &str) -> Result<(), FirewallError> {
                 Ok(())
             }
+            fn ipv6_available(&self) -> bool {
+                true
+            }
         }
         assert!(matches!(
             apply(&V4Broken, &both()),
@@ -517,12 +586,27 @@ mod tests {
         ));
     }
 
-    #[test]
-    fn remove_skips_v6_when_listing_errors() {
+    fn v6_broken_with_v4_installed() -> FakeFirewall {
         let mut fw = FakeFirewall::default()
             .with(Family::V4, "DOCKER-USER", &[JUMP])
             .with(Family::V4, "DOCKER-FENCE", &["-N DOCKER-FENCE"]);
         fw.fail_v6_list = true;
+        fw
+    }
+
+    #[test]
+    fn remove_v6_error_with_ipv6_present_removes_v4_then_errors() {
+        let fw = v6_broken_with_v4_installed();
+        let err = remove(&fw).unwrap_err();
+        assert!(matches!(&err, FenceError::Firewall(_)));
+        assert!(err.to_string().contains("ip6tables"), "{err}");
+        assert_eq!(fw.calls(), vec![(Family::V4, render_remove(1))]);
+    }
+
+    #[test]
+    fn remove_v6_error_with_ipv6_absent_skips_with_notice() {
+        let mut fw = v6_broken_with_v4_installed();
+        fw.ipv6_absent = true;
         let r = remove(&fw).unwrap();
         assert_eq!(fw.calls(), vec![(Family::V4, render_remove(1))]);
         assert!(
@@ -530,6 +614,14 @@ mod tests {
                 .iter()
                 .any(|n| n.contains("Address family not supported"))
         );
+    }
+
+    #[test]
+    fn remove_and_status_propagate_fence_chain_listing_error() {
+        let mut fw = installed(true, &["192.0.2.0/24"]);
+        fw.fail_fence_list = true;
+        assert!(matches!(remove(&fw), Err(FenceError::Firewall(_))));
+        assert!(matches!(status(&fw, &both()), Err(FenceError::Firewall(_))));
     }
 
     #[test]

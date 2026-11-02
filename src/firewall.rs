@@ -17,11 +17,13 @@ impl std::error::Error for FirewallError {}
 
 pub trait Firewall {
     /// `Ok(None)` means the chain does not exist. Any `Err` is a listing
-    /// failure; callers treat it as a hard error for IPv4 but as "IPv6
-    /// unavailable" (e.g. `ipv6.disable=1`) for IPv6.
+    /// failure: a hard error for IPv4; for IPv6 it is tolerated only when
+    /// `ipv6_available()` is false or no IPv6 subnets are configured.
     fn list_chain(&self, family: Family, chain: &str)
     -> Result<Option<Vec<String>>, FirewallError>;
     fn restore(&self, family: Family, script: &str) -> Result<(), FirewallError>;
+    /// Whether the kernel has IPv6 at all (false for `ipv6.disable=1`).
+    fn ipv6_available(&self) -> bool;
 }
 
 pub struct SystemFirewall;
@@ -79,6 +81,10 @@ fn run(
 }
 
 impl Firewall for SystemFirewall {
+    fn ipv6_available(&self) -> bool {
+        std::path::Path::new("/proc/sys/net/ipv6").exists()
+    }
+
     fn list_chain(
         &self,
         family: Family,
