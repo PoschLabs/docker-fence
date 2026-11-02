@@ -9,3 +9,4 @@ description = "Block Docker containers from opening new connections to listed ne
 [dependencies]
 clap = { version = "4.6.7", default-features = false, features = ["std", "help", "usage", "error-context", "derive"] }
 ipnet = "2"
+log = "0.4.35"

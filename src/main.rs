@@ -1,5 +1,6 @@
 mod config;
 mod firewall;
+mod logging;
 mod ops;
 mod rules;
 
@@ -36,24 +37,20 @@ enum Command {
     Status,
 }
 
-fn log(msg: impl std::fmt::Display) {
-    eprintln!("docker-fence: {msg}");
-}
-
 fn print_notices(report: &Report) {
     for n in &report.notices {
-        log(n);
+        log::warn!("{n}");
     }
 }
 
 fn fail(e: &FenceError) -> ExitCode {
-    log(e);
+    log::error!("{e}");
     ExitCode::from(1)
 }
 
 fn load_config(path: &Path) -> Result<config::FenceConfig, ExitCode> {
     config::load(path).map_err(|e| {
-        log(e);
+        log::error!("{e}");
         ExitCode::from(2)
     })
 }
@@ -119,6 +116,7 @@ fn run(cli: &Cli) -> ExitCode {
 }
 
 fn main() -> ExitCode {
+    logging::init();
     run(&Cli::parse())
 }
 
