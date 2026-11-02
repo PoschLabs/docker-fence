@@ -31,8 +31,20 @@ The service is installed disabled on purpose: nothing is blocked until you confi
 ## Command line
 
 ```text
-usage: docker-fence [--config PATH] <apply|remove|status>
-       docker-fence --help | --version
+Block Docker containers from opening new connections to listed networks
+
+Usage: docker-fence [OPTIONS] <COMMAND>
+
+Commands:
+  apply   Install the firewall rules for the configured networks
+  remove  Remove the firewall rules (ignores the configuration file)
+  status  Check that the installed rules match the configuration
+  help    Print this message or the help of the given subcommand(s)
+
+Options:
+      --config <PATH>  Path to the configuration file [default: /etc/docker-fence/docker-fence.conf]
+  -h, --help           Print help
+  -V, --version        Print version
 ```
 
 Normally you do not run these directly; the systemd unit does (`apply` on start and reload, `remove` on stop). `status` is for you.

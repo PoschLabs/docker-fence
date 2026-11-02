@@ -6,67 +6,34 @@ mod rules;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
+use clap::{Parser, Subcommand};
 use config::DEFAULT_CONFIG_PATH;
 use firewall::SystemFirewall;
 use ops::{FamilyStatus, FenceError, Report};
 use rules::Family;
 
-const USAGE: &str = "usage: docker-fence [--config PATH] <apply|remove|status>\n       docker-fence --help | --version";
+#[derive(Debug, Parser)]
+#[command(
+    name = "docker-fence",
+    version,
+    about = "Block Docker containers from opening new connections to listed networks"
+)]
+struct Cli {
+    /// Path to the configuration file
+    #[arg(long, global = true, value_name = "PATH", default_value = DEFAULT_CONFIG_PATH)]
+    config: PathBuf,
+    #[command(subcommand)]
+    command: Command,
+}
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Command {
+#[derive(Debug, Subcommand)]
+enum Command {
+    /// Install the firewall rules for the configured networks
     Apply,
+    /// Remove the firewall rules (ignores the configuration file)
     Remove,
+    /// Check that the installed rules match the configuration
     Status,
-}
-
-#[derive(Debug, PartialEq, Eq)]
-pub struct Cli {
-    pub command: Command,
-    pub config: PathBuf,
-}
-
-/// Output for `--help` / `--version`, which print to stdout and exit 0.
-fn early_output(args: &[String]) -> Option<String> {
-    for arg in args {
-        match arg.as_str() {
-            "--help" | "-h" => return Some(USAGE.to_string()),
-            "--version" | "-V" => {
-                return Some(format!("docker-fence {}", env!("CARGO_PKG_VERSION")));
-            }
-            _ => {}
-        }
-    }
-    None
-}
-
-/// Err carries a usage message.
-pub fn parse_args(args: &[String]) -> Result<Cli, String> {
-    let mut config = PathBuf::from(DEFAULT_CONFIG_PATH);
-    let mut command = None;
-    let mut it = args.iter();
-    while let Some(arg) = it.next() {
-        match arg.as_str() {
-            "--config" => match it.next() {
-                Some(v) => config = PathBuf::from(v),
-                None => return Err(format!("--config requires a path\n{USAGE}")),
-            },
-            "apply" | "remove" | "status" if command.is_some() => {
-                return Err(format!("unexpected argument '{arg}'\n{USAGE}"));
-            }
-            "apply" => command = Some(Command::Apply),
-            "remove" => command = Some(Command::Remove),
-            "status" => command = Some(Command::Status),
-            other if other.starts_with('-') => {
-                return Err(format!("unknown option '{other}'\n{USAGE}"));
-            }
-            other => return Err(format!("unknown command '{other}'\n{USAGE}")),
-        }
-    }
-    match command {
-        Some(command) => Ok(Cli { command, config }),
-        None => Err(format!("missing command\n{USAGE}")),
-    }
 }
 
 fn log(msg: impl std::fmt::Display) {
@@ -152,85 +119,74 @@ fn run(cli: &Cli) -> ExitCode {
 }
 
 fn main() -> ExitCode {
-    let args: Vec<String> = std::env::args().skip(1).collect();
-    if let Some(out) = early_output(&args) {
-        println!("{out}");
-        return ExitCode::SUCCESS;
-    }
-    match parse_args(&args) {
-        Ok(cli) => run(&cli),
-        Err(msg) => {
-            log(msg);
-            ExitCode::from(2)
-        }
-    }
+    run(&Cli::parse())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use clap::error::ErrorKind;
 
-    fn a(v: &[&str]) -> Vec<String> {
-        v.iter().map(|s| s.to_string()).collect()
+    fn parse(v: &[&str]) -> Result<Cli, clap::Error> {
+        Cli::try_parse_from(v)
     }
 
     #[test]
     fn default_config_path() {
-        let cli = parse_args(&a(&["apply"])).unwrap();
-        assert_eq!(cli.command, Command::Apply);
+        let cli = parse(&["docker-fence", "apply"]).unwrap();
+        assert!(matches!(cli.command, Command::Apply));
         assert_eq!(cli.config, PathBuf::from(config::DEFAULT_CONFIG_PATH));
     }
 
     #[test]
-    fn config_option() {
-        let cli = parse_args(&a(&["--config", "/tmp/x", "apply"])).unwrap();
+    fn config_before_subcommand() {
+        let cli = parse(&["docker-fence", "--config", "/tmp/x", "apply"]).unwrap();
         assert_eq!(cli.config, PathBuf::from("/tmp/x"));
-        let cli = parse_args(&a(&["status", "--config", "/tmp/y"])).unwrap();
-        assert_eq!(cli.command, Command::Status);
+    }
+
+    #[test]
+    fn config_after_subcommand() {
+        let cli = parse(&["docker-fence", "status", "--config", "/tmp/y"]).unwrap();
+        assert!(matches!(cli.command, Command::Status));
         assert_eq!(cli.config, PathBuf::from("/tmp/y"));
     }
 
     #[test]
-    fn remove_command() {
-        assert_eq!(
-            parse_args(&a(&["remove"])).unwrap().command,
-            Command::Remove
-        );
+    fn unknown_subcommand_is_error() {
+        assert!(parse(&["docker-fence", "frobnicate"]).is_err());
     }
 
     #[test]
-    fn unknown_command_errors() {
-        assert!(
-            parse_args(&a(&["frobnicate"]))
-                .unwrap_err()
-                .contains("frobnicate")
-        );
+    fn missing_subcommand_is_error() {
+        assert!(parse(&["docker-fence"]).is_err());
+        assert!(parse(&["docker-fence", "--config", "/tmp/x"]).is_err());
     }
 
     #[test]
-    fn missing_command_errors() {
-        assert!(parse_args(&a(&[])).is_err());
-        assert!(parse_args(&a(&["--config", "/tmp/x"])).is_err());
+    fn config_without_value_is_error() {
+        assert!(parse(&["docker-fence", "apply", "--config"]).is_err());
     }
 
     #[test]
-    fn config_needs_value_and_extra_args_rejected() {
-        assert!(parse_args(&a(&["apply", "--config"])).is_err());
-        assert!(parse_args(&a(&["apply", "status"])).is_err());
-        assert!(parse_args(&a(&["--bogus", "apply"])).is_err());
+    fn config_does_not_swallow_help_flag() {
+        let err = parse(&["docker-fence", "--config", "--help", "apply"]).unwrap_err();
+        assert_ne!(err.kind(), ErrorKind::DisplayHelp);
     }
 
     #[test]
-    fn help_and_version() {
-        assert_eq!(
-            early_output(&a(&["--version"])),
-            Some(format!("docker-fence {}", env!("CARGO_PKG_VERSION")))
-        );
-        assert_eq!(early_output(&a(&["--help"])), Some(USAGE.to_string()));
-        assert_eq!(
-            early_output(&a(&["apply", "--help"])),
-            Some(USAGE.to_string())
-        );
-        assert_eq!(early_output(&a(&["apply"])), None);
+    fn two_subcommands_is_error() {
+        assert!(parse(&["docker-fence", "apply", "status"]).is_err());
+    }
+
+    #[test]
+    fn version_flag() {
+        let err = parse(&["docker-fence", "--version"]).unwrap_err();
+        assert_eq!(err.kind(), ErrorKind::DisplayVersion);
+    }
+
+    #[test]
+    fn help_flag() {
+        let err = parse(&["docker-fence", "--help"]).unwrap_err();
+        assert_eq!(err.kind(), ErrorKind::DisplayHelp);
     }
 }
