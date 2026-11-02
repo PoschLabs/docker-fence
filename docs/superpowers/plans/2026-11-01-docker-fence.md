@@ -350,3 +350,22 @@ All tests are `#[ignore]` (need root) and run with `sudo -E env "PATH=$PATH" car
 - [ ] **Step 4:** `cargo test`, `cargo clippy --all-targets -- -D warnings`, `cargo fmt --check` all pass; run the binary and show: `docker-fence --version` (exit 0), `docker-fence --help` (exit 0), `docker-fence bogus` (exit 2), `docker-fence` (exit 2), `docker-fence --config` (exit 2).
 - [ ] **Step 5:** Replace the quoted usage text in README and docs with the real `--help` output; confirm nothing else in docs mentions the old parser behavior.
 - [ ] **Step 6:** Commit `refactor: use clap for the command line`.
+
+### Task 13: Use the `log` crate instead of printing directly
+
+**Files:**
+- Create: `src/logging.rs`
+- Modify: `Cargo.toml` (via `cargo add log`), `src/main.rs`
+
+**Interfaces:**
+- Produces (`src/logging.rs`): `pub fn init()` (installs the logger once with `log::set_logger` and `log::set_max_level(log::LevelFilter::Info)`), `pub fn format_line(message: &str) -> String` returning exactly `docker-fence: <message>`, and a private `StderrLogger` implementing `log::Log` that writes `format_line(&record.args().to_string())` to stderr for records at or above Info.
+- Consumes: the `ops::Report { notices }` strings and the `FenceError` messages in `main.rs`.
+
+**Rules:** Output text on stderr stays byte-identical to today (`docker-fence: <message>`, no level label added), so the docs, the notice strings quoted in `docs/`, and the integration tests that match stderr keep passing. In `main.rs`, replace the direct `eprintln!`-style `log()` helper: errors use `log::error!`, notices use `log::warn!`. `status` output lines and clap's own usage/help/version output are NOT logging and stay as they are. `logging::init()` is called first thing in `main`. No new dependency besides `log` (add with `cargo add log`).
+
+- [ ] **Step 1: Write failing tests** in `src/logging.rs`: `format_line_prefixes_message` (`format_line("hello")` equals `"docker-fence: hello"`), `format_line_keeps_warning_text_unchanged` (a message starting `WARNING: ip6tables ...` is not altered or double-prefixed).
+- [ ] **Step 2:** `cargo test logging` — expect FAIL (RED output in the report).
+- [ ] **Step 3:** `cargo add log`; implement `logging.rs`; wire `main.rs` (remove the old helper, use the macros).
+- [ ] **Step 4:** `cargo test`, `cargo clippy --all-targets -- -D warnings`, `cargo fmt --check` pass; run the binary: `docker-fence apply --config /nonexistent; echo $?` prints a `docker-fence: ...cannot read config` line on stderr and exits 2 exactly as before; show the stderr output.
+- [ ] **Step 5:** Check `docs/` and `README.md` for statements about how messages are printed; update only if something is now wrong.
+- [ ] **Step 6:** Commit `refactor: log through the log crate`.
