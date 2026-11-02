@@ -277,6 +277,7 @@ mod tests {
         fail_v6_restore: bool,
         fail_v6_list: bool,
         fail_fence_list: bool,
+        fail_v6_fence_list: bool,
         ipv6_absent: bool,
     }
 
@@ -311,7 +312,9 @@ mod tests {
             if f == Family::V6 && self.fail_v6_list {
                 return Err(FirewallError("Address family not supported".into()));
             }
-            if self.fail_fence_list && chain == "DOCKER-FENCE" {
+            if (self.fail_fence_list || (self.fail_v6_fence_list && f == Family::V6))
+                && chain == "DOCKER-FENCE"
+            {
                 return Err(FirewallError("lock timeout".into()));
             }
             Ok(self.lists.get(&(f, chain.to_string())).cloned())
@@ -621,6 +624,21 @@ mod tests {
         let mut fw = installed(true, &["192.0.2.0/24"]);
         fw.fail_fence_list = true;
         assert!(matches!(remove(&fw), Err(FenceError::Firewall(_))));
+        assert!(matches!(status(&fw, &both()), Err(FenceError::Firewall(_))));
+    }
+
+    #[test]
+    fn remove_propagates_v6_only_fence_chain_listing_error() {
+        let mut fw = installed(true, &["192.0.2.0/24"]);
+        fw.fail_v6_fence_list = true;
+        assert!(matches!(remove(&fw), Err(FenceError::Firewall(_))));
+        assert_eq!(fw.calls(), vec![(Family::V4, render_remove(1))]);
+    }
+
+    #[test]
+    fn status_propagates_v6_only_fence_chain_listing_error() {
+        let mut fw = installed(true, &["192.0.2.0/24"]);
+        fw.fail_v6_fence_list = true;
         assert!(matches!(status(&fw, &both()), Err(FenceError::Firewall(_))));
     }
 
