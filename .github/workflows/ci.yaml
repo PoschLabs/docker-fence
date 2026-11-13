@@ -1,9 +1,7 @@
-name: ci
+name: CI
 
 on:
-  pull_request:
-  push:
-    branches: [main]
+  workflow_call:
 
 permissions:
   contents: read
@@ -12,27 +10,51 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  audit:
+    name: Dependency audit
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      checks: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Audit Cargo.lock against the RustSec advisory database
+        uses: rustsec/audit-check@v2
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
   lint-test:
+    name: Format, lint and unit tests
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - name: Checkout
+        uses: actions/checkout@v7
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
-      - uses: Swatinem/rust-cache@v2
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
       - name: Format
         run: cargo fmt --check
       - name: Clippy
-        run: cargo clippy --all-targets -- -D warnings
+        run: cargo clippy --all-targets --locked -- -D warnings
       - name: Unit tests
-        run: cargo test
+        run: cargo test --locked
 
   integration:
+    name: Integration tests (netns)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
+      - name: Checkout
+        uses: actions/checkout@v7
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
       - name: Install system packages
         run: |
           sudo apt-get update
@@ -43,6 +65,7 @@ jobs:
         run: sudo -E env "PATH=$PATH" cargo test --test netns -- --ignored --test-threads=1
 
   rocky9:
+    name: Integration tests (Rocky Linux 9)
     runs-on: ubuntu-latest
     continue-on-error: true
     container:
@@ -51,7 +74,8 @@ jobs:
     steps:
       - name: Install system packages
         run: dnf install -y --allowerasing iptables iproute curl python3 gcc git tar
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v7
       - name: Install Rust toolchain
         run: |
           curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain stable

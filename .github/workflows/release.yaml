@@ -3,18 +3,24 @@ name: Release
 on:
   push:
     tags:
-      - "v*"
+      - "v[0-9]+.[0-9]+.[0-9]+"
 
 permissions:
   contents: read
 
 jobs:
-  test:
+  version:
+    name: Verify tag matches Cargo.toml version
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
 
       - name: Check tag matches Cargo.toml version
         run: |
@@ -25,22 +31,28 @@ jobs:
             exit 1
           fi
 
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Unit tests
-        run: cargo test
-        env:
-          CARGO_TERM_COLOR: always
+  test:
+    name: CI checks
+    uses: ./.github/workflows/ci.yaml
+    permissions:
+      contents: read
+      checks: write
 
   build:
-    needs: test
+    name: Build packages
+    needs:
+      - version
+      - test
 
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
@@ -73,8 +85,17 @@ jobs:
           ZIG_GLOBAL_CACHE_DIR: ${{ runner.temp }}/zig-global-cache
           ZIG_LOCAL_CACHE_DIR: ${{ runner.temp }}/zig-local-cache
 
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@v4
+        with:
+          subject-path: |
+            dist/*.rpm
+            dist/*.deb
+            dist/*.tar.gz
+            dist/checksums.txt
+
       - name: Upload unsigned packages
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: unsigned-linux-packages
           path: |
@@ -82,96 +103,16 @@ jobs:
             dist/*.deb
           if-no-files-found: error
 
-  sign-release:
+  release:
+    name: Sign and publish packages
     needs: build
-
-    runs-on:
-      - self-hosted
-
     permissions:
-      contents: write
       id-token: write
-
-    steps:
-      - name: Download unsigned packages
-        uses: actions/download-artifact@v4
-        with:
-          name: unsigned-linux-packages
-          path: packages
-
-      - name: List packages
-        run: |
-          find packages -maxdepth 2 -type f -print
-
-      - name: Sign RPM packages
-        uses: JohannesPosch/sign-rpms-action@v1
-        with:
-          packages-path: packages
-          bao-url: ${{ vars.KEYSTORE_URL }}
-          bao-role: ${{ vars.KEYSTORE_ROLE }}
-          bao-auth-path: ${{ vars.KEYSTORE_AUTH_PATH }}
-          oidc-audience: ${{ vars.KEYSTORE_OIDC_AUDIENCE }}
-          secret-path: ${{ vars.KEYSTORE_SECRET_PATH }}
-
-      - name: Upload signed packages
-        uses: actions/upload-artifact@v4
-        with:
-          name: signed-linux-packages
-          path: |
-            packages/*.deb
-            packages/*.rpm
-          if-no-files-found: error
-
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v3
-        with:
-          tag_name: ${{ github.ref_name }}
-          name: ${{ github.ref_name }}
-          generate_release_notes: true
-          files: |
-            packages/*
-
-      - name: Cleanup
-        if: always()
-        run: |
-          rm -rf packages
-
-  publish-packages:
-    name: Publish packages
-
-    runs-on:
-      - self-hosted
-
-    container:
-      image: ubuntu:26.04
-
-    needs:
-      - build
-      - sign-release
-
-    steps:
-      - name: Download signed packages
-        uses: actions/download-artifact@v5
-        with:
-          name: signed-linux-packages
-          path: packages
-
-      - name: Install dependencies
-        run: |
-          apt-get update
-          apt-get install -y curl ca-certificates
-
-      - name: Publish Packages
-        uses: JohannesPosch/publish-packages-action@v1
-        with:
-          packages-path: packages
-          nexus-url: ${{ vars.PACKAGES_URL }}
-          nexus-username: ${{ secrets.PACKAGES_USERNAME }}
-          nexus-password: ${{ secrets.PACKAGES_PASSWORD }}
-          apt-repository: ${{ vars.APT_REPOSITORY }}
-          yum-repository: ${{ vars.YUM_REPOSITORY }}
-
-      - name: Cleanup
-        if: always()
-        run: |
-          rm -rf packages
+      contents: read
+    uses: PoschLabs/release-packages/.github/workflows/release.yml@v1
+    with:
+      server-url: ${{ vars.PACKAGE_SERVER_URL }}
+      artifact-name: unsigned-linux-packages
+    secrets:
+      server-username: ${{ secrets.PACKAGE_SERVER_USERNAME }}
+      server-password: ${{ secrets.PACKAGE_SERVER_PASSWORD }}
