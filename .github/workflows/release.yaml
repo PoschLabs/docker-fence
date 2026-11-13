@@ -111,8 +111,12 @@ jobs:
       contents: read
     uses: PoschLabs/release-packages/.github/workflows/release.yml@v1
     with:
-      server-url: ${{ vars.PACKAGE_SERVER_URL }}
+      package-server-url: ${{ vars.PACKAGE_SERVER_URL }}
       artifact-name: unsigned-linux-packages
     secrets:
-      server-username: ${{ secrets.PACKAGE_SERVER_USERNAME }}
-      server-password: ${{ secrets.PACKAGE_SERVER_PASSWORD }}
+      package-server-username: ${{ secrets.PACKAGE_SERVER_USERNAME }}
+      package-server-password: ${{ secrets.PACKAGE_SERVER_PASSWORD }}
+      sign-infisical-url: ${{ secrets.SIGN_INFISICAL_URL }}
+      sign-infisical-identity-id: ${{ secrets.SIGN_INFISICAL_IDENTITY_ID }}
+      sign-infisical-project-id: ${{ secrets.SIGN_INFISICAL_PROJECT_ID }}
+      sign-infisical-secret-path: ${{ secrets.SIGN_INFISICAL_SECRET_PATH }}
