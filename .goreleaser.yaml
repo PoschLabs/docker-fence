@@ -13,8 +13,18 @@ builds:
       - aarch64-unknown-linux-musl
 
 archives:
-  - formats:
+  - id: docker-fence
+    ids:
+      - docker-fence
+    formats:
       - tar.gz
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    files:
+      - LICENSE
+      - README.md
+      - docs/*.md
+      - packaging/docker-fence.service
+      - packaging/docker-fence.conf
 
 nfpms:
   - id: linux-packages
@@ -25,8 +35,27 @@ nfpms:
     vendor: PoschLabs
     homepage: https://github.com/PoschLabs/docker-fence
     maintainer: PoschLabs
-    description: Block Docker containers from opening new connections to listed networks
+    description: |
+      Block Docker containers from opening new connections to listed networks.
+      docker-fence installs a dedicated DOCKER-FENCE chain at the top of
+      Docker's DOCKER-USER chain, for IPv4 and IPv6. Replies on connections
+      started from a protected network are still allowed. Rules are reconciled
+      on reload and removed when the service stops.
+      The service is installed disabled; nothing is blocked until you list
+      networks in /etc/docker-fence/docker-fence.conf and enable it.
     license: MIT
+
+    # Package metadata
+    section: admin
+    priority: optional
+
+    rpm:
+      summary: Block Docker containers from opening new connections to listed networks
+      packager: PoschLabs
+
+    deb:
+      fields:
+        Bugs: https://github.com/PoschLabs/docker-fence/issues
 
     formats:
       - deb
@@ -59,3 +88,5 @@ release:
   github:
     owner: PoschLabs
     name: docker-fence
+  name_template: "{{ .Tag }}"
+  prerelease: auto
