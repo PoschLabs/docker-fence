@@ -373,8 +373,12 @@ fn missing_docker_user_is_a_clear_error() {
     let out = h.docker_fence(&["apply"]);
     assert_exit(&out, 1, "apply without DOCKER-USER");
     let err = stderr(&out);
-    assert!(err.contains("Docker"), "{err}");
-    assert!(err.starts_with("docker-fence: "), "{err}");
+    // stderr also carries the `[#] <command>` echo, so look for the error line.
+    assert!(
+        err.lines()
+            .any(|l| l.starts_with("docker-fence: ") && l.contains("Docker")),
+        "{err}"
+    );
     for tool in ["iptables", "ip6tables"] {
         assert!(!h.chain_exists(tool, "DOCKER-FENCE"), "{tool}");
     }
