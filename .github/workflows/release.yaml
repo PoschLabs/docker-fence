@@ -11,7 +11,7 @@ permissions:
 jobs:
   version:
     name: Verify tag matches Cargo.toml version
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
 
     steps:
       - name: Checkout
@@ -44,7 +44,7 @@ jobs:
       - version
       - test
 
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     permissions:
       contents: read
       id-token: write

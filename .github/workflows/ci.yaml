@@ -12,7 +12,7 @@ env:
 jobs:
   audit:
     name: Dependency audit
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     permissions:
       contents: read
       checks: write
@@ -28,7 +28,7 @@ jobs:
 
   lint-test:
     name: Format, lint and unit tests
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -47,7 +47,7 @@ jobs:
 
   integration:
     name: Integration tests (netns)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -58,22 +58,22 @@ jobs:
       - name: Install system packages
         run: |
           sudo apt-get update
-          sudo apt-get install -y iptables iproute2 curl python3
+          sudo apt-get install -y iptables iproute2 procps curl python3
       - name: Record iptables backend
         run: iptables --version
       - name: Integration tests (network namespaces)
-        run: sudo -E env "PATH=$PATH" cargo test --test netns -- --ignored --test-threads=1
+        run: sudo env "PATH=$PATH" "HOME=$HOME" cargo test --test netns -- --ignored --test-threads=1
 
   rocky9:
     name: Integration tests (Rocky Linux 9)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     continue-on-error: true
     container:
       image: rockylinux:9
       options: --privileged
     steps:
       - name: Install system packages
-        run: dnf install -y --allowerasing iptables iproute curl python3 gcc git tar
+        run: dnf install -y --allowerasing iptables iproute procps-ng curl python3 gcc git tar
       - name: Checkout
         uses: actions/checkout@v7
       - name: Install Rust toolchain
