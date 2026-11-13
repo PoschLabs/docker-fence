@@ -2,7 +2,7 @@
 
 ## Chain layout
 
-For each address family (`iptables` and `ip6tables`) docker-fence creates one chain, `DOCKER-FENCE`, and one jump to it from `DOCKER-USER`. For a config containing `192.0.2.0/24`, `iptables -S DOCKER-FENCE` shows:
+For each address family (`iptables` and `ip6tables`) docker-fence creates one chain, `DOCKER-FENCE`, and one jump to it from `DOCKER-USER`. For a config containing `block 192.0.2.0/24`, `iptables -S DOCKER-FENCE` shows:
 
 ```text
 -N DOCKER-FENCE
@@ -24,7 +24,9 @@ and `iptables -S DOCKER-USER` begins with the jump:
 Rule order in `DOCKER-FENCE`:
 
 1. Packets of established or related connections return immediately.
-2. For each configured network, traffic arriving from `docker0` or from any bridge matching `br+` and destined to that network is rejected.
+2. For each configured network, traffic arriving from `docker0` or from any bridge matching `br+` and destined to that network is rejected (`block`) or returned (`allow`).
+
+Entries are sorted by prefix length, longest first, because iptables uses the first rule that matches. That is why the most specific entry wins: an `allow 192.0.2.10/32` is placed above `block 192.0.2.0/24` and returns before the reject rules are reached.
 
 ## Why the jump is at the top of DOCKER-USER
 

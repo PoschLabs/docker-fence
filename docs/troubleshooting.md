@@ -43,7 +43,7 @@ On Rocky, the host usually runs firewalld, and Docker with firewalld can interac
 sudo journalctl -u docker-fence -e
 ```
 
-Look for a line like `docker-fence: /etc/docker-fence/docker-fence.conf:3: invalid CIDR "..."`. Fix that line and run:
+Look for a line like `docker-fence: /etc/docker-fence/docker-fence.conf:3: invalid network "..."` (or `missing action`, `unknown action`). Fix that line and run:
 
 ```sh
 sudo systemctl restart docker-fence

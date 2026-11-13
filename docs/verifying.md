@@ -36,7 +36,7 @@ See [how it works](how-it-works.md#chain-layout) for the expected listing.
 
 ## A worked test
 
-Suppose `192.0.2.0/24` is in the config and the service is running. Pick an address in that range for the test. (If `192.0.2.0/24` is not routed on your host, the connection is still rejected at the firewall first, which is what you are testing.)
+Suppose `block 192.0.2.0/24` is in the config and the service is running. Pick an address in that range for the test. (If `192.0.2.0/24` is not routed on your host, the connection is still rejected at the firewall first, which is what you are testing.)
 
 With the fence active, a container cannot open a connection:
 
